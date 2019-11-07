@@ -24,7 +24,7 @@ from folder import ImageFolder
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', required=True, help='cifar10 | imagenet')
 parser.add_argument('--dataroot', required=True, help='path to dataset')
-parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
+parser.add_argument('--workers', type=int, help='number of data loading workers', default=0)
 parser.add_argument('--batchSize', type=int, default=1, help='input batch size')
 parser.add_argument('--imageSize', type=int, default=128, help='the height / width of the input image to network')
 parser.add_argument('--nz', type=int, default=110, help='size of the latent z vector')
@@ -160,13 +160,23 @@ eval_noise_[np.arange(opt.batchSize), :num_classes] = eval_onehot[np.arange(opt.
 eval_noise_ = (torch.from_numpy(eval_noise_))
 eval_noise.data.copy_(eval_noise_.view(opt.batchSize, nz, 1, 1))
 
-# setup optimizer
-optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 
-avg_loss_D = 0.0
-avg_loss_G = 0.0
-avg_loss_A = 0.0
+
+def train(self,dataloader,epochs):
+    # setup optimizer
+    optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+    optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+
+    avg_loss_D = 0.0
+    avg_loss_G = 0.0
+    avg_loss_A = 0.0
+    adv_loss_sum = 0.0
+    
+    for epoch in range(epochs):
+        for i,data in enumerate(dataloader,0):
+            images,lables = data
+            images,lables = images.cuda(),lables.cuda()
+
 for epoch in range(opt.niter):
     for i, data in enumerate(dataloader, 0):
         ############################
@@ -174,13 +184,13 @@ for epoch in range(opt.niter):
         ###########################
         # train with real
         netD.zero_grad()
-        real_cpu, label = data
-        batch_size = real_cpu.size(0)
+        images, labels = data
+        batch_size = images.size(0)
         if opt.cuda:
-            real_cpu = real_cpu.cuda()
-        input.data.resize_as_(real_cpu).copy_(real_cpu)
+            images = images.cuda()
+        input.data.resize_as_(images).copy_(images)
         dis_label.data.resize_(batch_size).fill_(real_label)
-        aux_label.data.resize_(batch_size).copy_(label)
+        aux_label.data.resize_(batch_size).copy_(labels)
         dis_output, aux_output = netD(input)
 
         dis_errD_real = dis_criterion(dis_output, dis_label)
@@ -194,14 +204,14 @@ for epoch in range(opt.niter):
 
         # train with fake
         noise.data.resize_(batch_size, nz, 1, 1).normal_(0, 1)
-        label = np.random.randint(0, num_classes, batch_size)
+        labels = np.random.randint(0, num_classes, batch_size)
         noise_ = np.random.normal(0, 1, (batch_size, nz))
         class_onehot = np.zeros((batch_size, num_classes))
-        class_onehot[np.arange(batch_size), label] = 1
+        class_onehot[np.arange(batch_size), labels] = 1
         noise_[np.arange(batch_size), :num_classes] = class_onehot[np.arange(batch_size)]
         noise_ = (torch.from_numpy(noise_))
         noise.data.copy_(noise_.view(batch_size, nz, 1, 1))
-        aux_label.data.resize_(batch_size).copy_(torch.from_numpy(label))
+        aux_label.data.resize_(batch_size).copy_(torch.from_numpy(labels))
 
         fake = netG(noise)
         dis_label.data.fill_(fake_label)
@@ -232,8 +242,8 @@ for epoch in range(opt.niter):
         all_loss_G = avg_loss_G * curr_iter
         all_loss_D = avg_loss_D * curr_iter
         all_loss_A = avg_loss_A * curr_iter
-        all_loss_G += errG.data[0]
-        all_loss_D += errD.data[0]
+        all_loss_G += errG.data.item()
+        all_loss_D += errD.data.item()
         all_loss_A += accuracy
         avg_loss_G = all_loss_G / (curr_iter + 1)
         avg_loss_D = all_loss_D / (curr_iter + 1)
@@ -241,10 +251,10 @@ for epoch in range(opt.niter):
 
         print('[%d/%d][%d/%d] Loss_D: %.4f (%.4f) Loss_G: %.4f (%.4f) D(x): %.4f D(G(z)): %.4f / %.4f Acc: %.4f (%.4f)'
               % (epoch, opt.niter, i, len(dataloader),
-                 errD.data[0], avg_loss_D, errG.data[0], avg_loss_G, D_x, D_G_z1, D_G_z2, accuracy, avg_loss_A))
+                 errD.data.item(), avg_loss_D, errG.data.item(), avg_loss_G, D_x, D_G_z1, D_G_z2, accuracy, avg_loss_A))
         if i % 100 == 0:
             vutils.save_image(
-                real_cpu, '%s/real_samples.png' % opt.outf)
+                images, '%s/real_samples.png' % opt.outf)
             print('Label for eval = {}'.format(eval_label))
             fake = netG(eval_noise)
             vutils.save_image(
