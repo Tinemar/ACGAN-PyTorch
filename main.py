@@ -25,7 +25,7 @@ class ACGAN_Adv:
     def __init__(self, params):
         self.params = params
         # specify the gpu id if using only 1 gpu
-        if params.ngup == 1:
+        if params.ngpu == 1:
             os.environ['CUDA_VISIBLE_DEVICES'] = str(params.gpu_id)
         try:
             os.makedirs(params.outf)
@@ -84,14 +84,22 @@ class ACGAN_Adv:
 
         # Define the generator and initialize the weights
         if params.dataset == 'imagenet':
-            self.netG = _netG(ngpu, nz)
+            self.netG = _netG(self.ngpu, self.nz)
         else:
-            self.netG = _netG_CIFAR10(ngpu, nz)
+            self.netG = _netG_CIFAR10(self.ngpu, self.nz)
         self.netG.apply(weights_init)
         if params.netG != '':
             self.netG.load_state_dict(torch.load(params.netG))
         print(self.netG)
-
+        # Define the discriminator and initialize the weights
+        if params.dataset == 'imagenet':
+            self.netD = _netD(self.ngpu, self.num_classes)
+        else:
+            self.netD = _netD_CIFAR10(self.ngpu, self.num_classes)
+        self.netD.apply(weights_init)
+        if params.netD != '':
+            self.netD.load_state_dict(torch.load(params.netD))
+        print(self.netD)
         # loss functions
         self.dis_criterion = nn.BCELoss()
         self.aux_criterion = nn.NLLLoss()
@@ -99,9 +107,9 @@ class ACGAN_Adv:
         # tensor placeholders
         self.input = torch.FloatTensor(
             params.batchSize, 3, params.imageSize, params.imageSize)
-        self.noise = torch.FloatTensor(params.batchSize, nz, 1, 1)
+        self.noise = torch.FloatTensor(params.batchSize, self.nz, 1, 1)
         self.eval_noise = torch.FloatTensor(
-            params.batchSize, nz, 1, 1).normal_(0, 1)
+            params.batchSize, self.nz, 1, 1).normal_(0, 1)
         self.dis_label = torch.FloatTensor(params.batchSize)
         self.aux_label = torch.LongTensor(params.batchSize)
         self.real_label = 1
@@ -133,7 +141,7 @@ class ACGAN_Adv:
                          :self.num_classes] = self.eval_onehot[np.arange(params.batchSize)]
         self.eval_noise_ = (torch.from_numpy(self.eval_noise_))
         self.eval_noise.data.copy_(
-            self.eval_noise_.view(params.batchSize, nz, 1, 1))
+            self.eval_noise_.view(params.batchSize, self.nz, 1, 1))
         # setup optimizer
         self.optimizerD = optim.Adam(
             self.netD.parameters(), lr=params.lr, betas=(params.beta1, 0.999))
@@ -165,7 +173,7 @@ class ACGAN_Adv:
             D_x = dis_output.data.mean()
 
             # compute the current classification accuracy
-            accuracy = compute_acc(aux_output, aux_label)
+            accuracy = compute_acc(aux_output, self.aux_label)
 
             # train with fake
             self.noise.data.resize_(batch_size, self.nz, 1, 1).normal_(0, 1)
@@ -180,7 +188,7 @@ class ACGAN_Adv:
             self.aux_label.data.resize_(batch_size).copy_(
                 torch.from_numpy(labels))
 
-            fake = self.netG(noise)
+            fake = self.netG(self.noise)
             self.dis_label.data.fill_(self.fake_label)
             dis_output, aux_output = self.netD(fake.detach())
 
@@ -198,20 +206,20 @@ class ACGAN_Adv:
         for i in range(1):
             self.netG.zero_grad()
             # fake labels are real for generator cost
-            self.dis_label.data.fill_(real_label)
+            self.dis_label.data.fill_(self.real_label)
             dis_output, aux_output = self.netD(fake)
-            dis_errG = dis_criterion(dis_output, dis_label)
-            aux_errG = aux_criterion(aux_output, aux_label)
+            dis_errG = self.dis_criterion(dis_output, self.dis_label)
+            aux_errG = self.aux_criterion(aux_output, self.aux_label)
             errG = dis_errG + aux_errG
             errG.backward()
             D_G_z2 = dis_output.data.mean()
-            #todo 
+            # todo
             #dav_loss and pert_loss
-            C = 0.1
-            loss_perturb = torch.mean(torch.norm(fake.view(fake.shape[0],-1),2,dim=1))
-            loss_G = adv_lambda * loss_adv + pert_lambda * loss_perturb
+            # C = 0.1
+            # loss_perturb = torch.mean(torch.norm(fake.view(fake.shape[0],-1),2,dim=1))
+            # loss_G = adv_lambda * loss_adv + pert_lambda * loss_perturb
             self.optimizerG.step()
-        return errD_real, errD_fake, errD, errG, D_x, D_G_z1, D_G_z2,accuracy
+        return errD_real, errD_fake, errD, errG, D_x, D_G_z1, D_G_z2, accuracy
 
     def train(self, params):
 
@@ -223,7 +231,8 @@ class ACGAN_Adv:
             for i, data in enumerate(self.dataloader, 0):
                 images, labels = data
                 # loss_G_batch, loss_D_batch, loss_A_batch, loss_adv_batch, loss_perturb_bath,accuracy = self.train_batch(images, labels)
-                errD_real, errD_fake, errD, errG,D_x, D_G_z1, D_G_z2, accuracy = train_batch(images,labels)
+                errD_real, errD_fake, errD, errG, D_x, D_G_z1, D_G_z2, accuracy = self.train_batch(
+                    images, labels)
                 print(epoch)
                 # compute the average loss
                 curr_iter = epoch * len(self.dataloader) + i
@@ -237,8 +246,8 @@ class ACGAN_Adv:
                 avg_loss_D = all_loss_D / (curr_iter + 1)
                 avg_loss_A = all_loss_A / (curr_iter + 1)
                 print('[%d/%d][%d/%d] Loss_D: %.4f (%.4f) Loss_G: %.4f (%.4f) D(x): %.4f D(G(z)): %.4f / %.4f Acc: %.4f (%.4f)'
-                  % (epoch, params.epochs, i, len(self.dataloader),
-                     errD.data.item(), avg_loss_D, errG.data.item(), avg_loss_G, D_x, D_G_z1, D_G_z2, accuracy, avg_loss_A))
+                      % (epoch, params.epochs, i, len(self.dataloader),
+                         errD.data.item(), avg_loss_D, errG.data.item(), avg_loss_G, D_x, D_G_z1, D_G_z2, accuracy, avg_loss_A))
                 if i % 100 == 0:
                     vutils.save_image(
                         images, '%s/real_samples.png' % params.outf)
@@ -250,13 +259,9 @@ class ACGAN_Adv:
                     )
             # do checkpointing
             torch.save(self.netG.state_dict(), '%s/netG_epoch_%d.pth' %
-                    (params.outf, epoch))
+                       (params.outf, epoch))
             torch.save(self.netD.state_dict(), '%s/netD_epoch_%d.pth' %
-                    (params.outf, epoch))
-
-        
-
-        
+                       (params.outf, epoch))
 
 
 if __name__ == "__main__":
