@@ -3,3 +3,4 @@ outputs*
 *.sw[po]
 /output
 /.vscode
+/venv
