@@ -65,7 +65,7 @@ Example training commands, the code will automatically generate images for testi
 ```bash
 $ python main.py --outf=/your/output/file/name --niter=500 --batchSize=100 --cuda --dataset=cifar10 --imageSize=32 --dataroot=/data/path/to/cifar10 --gpu=0
 ```
-
+python main.py --outf=./output --epochs=200 --batchSize=100 --cuda --dataset=cifar10 --imageSize=32 --dataroot=../cifar-10-batches-py --gpu=0  
 ## Author
 
 Te-Lin Wu / [@telin0411](https://github.com/telin0411) @ [Joseph Lim's research lab](https://github.com/gitlimlab) @ USC

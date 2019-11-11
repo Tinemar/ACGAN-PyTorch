@@ -2,23 +2,26 @@
 Code modified from PyTorch DCGAN examples: https://github.com/pytorch/examples/tree/master/dcgan
 """
 from __future__ import print_function
+
 import argparse
 import os
-import numpy as np
 import random
+
+import numpy as np
+
 import torch
+import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.parallel
-import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
-from torch.autograd import Variable
-from utils import weights_init, compute_acc
-from network import _netG, _netD, _netD_CIFAR10, _netG_CIFAR10
 from folder import ImageFolder
+from network import _netD, _netD_CIFAR10, _netG, _netG_CIFAR10
+from torch.autograd import Variable
+from utils import compute_acc, weights_init
 
 
 class ACGAN_Adv:
@@ -153,8 +156,7 @@ class ACGAN_Adv:
         ############################
         # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
         ###########################
-
-        for i in range(1):
+        for _ in range(1):
             # train with real
             self.netD.zero_grad()
             batch_size = images.size(0)
@@ -200,10 +202,10 @@ class ACGAN_Adv:
             errD = errD_real + errD_fake
             self.optimizerD.step()
         # optimize G
-         ############################
+        ############################
         # (2) Update G network: maximize log(D(G(z)))
         ###########################
-        for i in range(1):
+        for _ in range(1):
             self.netG.zero_grad()
             # fake labels are real for generator cost
             self.dis_label.data.fill_(self.real_label)
@@ -219,7 +221,7 @@ class ACGAN_Adv:
             # loss_perturb = torch.mean(torch.norm(fake.view(fake.shape[0],-1),2,dim=1))
             # loss_G = adv_lambda * loss_adv + pert_lambda * loss_perturb
             self.optimizerG.step()
-        return errD_real, errD_fake, errD, errG, D_x, D_G_z1, D_G_z2, accuracy
+        return errD, errG, D_x, D_G_z1, D_G_z2, accuracy
 
     def train(self, params):
 
@@ -231,7 +233,7 @@ class ACGAN_Adv:
             for i, data in enumerate(self.dataloader, 0):
                 images, labels = data
                 # loss_G_batch, loss_D_batch, loss_A_batch, loss_adv_batch, loss_perturb_bath,accuracy = self.train_batch(images, labels)
-                errD_real, errD_fake, errD, errG, D_x, D_G_z1, D_G_z2, accuracy = self.train_batch(
+                errD, errG, D_x, D_G_z1, D_G_z2, accuracy = self.train_batch(
                     images, labels)
                 print(epoch)
                 # compute the average loss
